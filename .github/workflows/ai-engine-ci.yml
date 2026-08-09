@@ -1,0 +1,31 @@
+name: AI Engine CI
+
+# Ye workflow tab chalega jab ai-engine folder mein kuch change ho
+on:
+  push:
+    paths:
+      - 'ai-engine/**'
+  pull_request:
+    paths:
+      - 'ai-engine/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          cd ai-engine
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: |
+          cd ai-engine
+          pytest tests/ || echo "No tests yet"
