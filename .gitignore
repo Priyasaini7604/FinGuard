@@ -5,10 +5,9 @@ __pycache__/
 *.pyo
 .env
 
-# AI Engine
+# AI Engine - trained models & data (regenerate via scripts, don't push binaries)
 ai-engine/data/*.csv
-ai-engine/models/*.pt
-ai-engine/models/*.onnx
+ai-engine/models/*
 
 # Node (agar frontend build tools use karo future mein)
 node_modules/
