@@ -10,6 +10,8 @@ import os
 import certifi
 from dotenv import load_dotenv
 
+from app.routers import transactions
+
 load_dotenv()
 
 MONGODB_URI = os.getenv("MONGODB_URI")
@@ -45,6 +47,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="FinGuard API", lifespan=lifespan)
+app.include_router(transactions.router)
 
 
 @app.get("/")
