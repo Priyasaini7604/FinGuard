@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import uuid
 
 from app.models.schemas import TransactionIn, TransactionOut
+from app.services.scoring import compute_features
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -15,13 +16,20 @@ router = APIRouter(prefix="/transactions", tags=["transactions"])
 @router.post("/", response_model=TransactionOut)
 async def create_transaction(transaction: TransactionIn, request: Request):
     """
-    Receives a new transaction, saves it to MongoDB, and returns it back.
-    Risk scoring will be added here in the next step - for now this just
-    proves the save/retrieve pipeline works end-to-end.
+    Receives a new transaction, computes real-time behavioral features from
+    this sender's recent history, scores it with the ONNX models, saves the
+    full result to MongoDB, and returns it.
     """
     db = request.app.mongodb
+    scorer = request.app.fraud_scorer
 
-    # Server generates these - never trust the client for identity/timing fields
+    # Real-time equivalent of feature_engineering.py's rolling window logic -
+    # looks at this sender's actual history in MongoDB right now.
+    features = await compute_features(db, transaction.sender_account, transaction.amount)
+
+    # Run both ONNX models and combine into a single risk score
+    result = scorer.score(features)
+
     transaction_doc = {
         "transaction_id": f"TXN-{uuid.uuid4().hex[:10].upper()}",
         "sender_account": transaction.sender_account,
@@ -29,6 +37,8 @@ async def create_transaction(transaction: TransactionIn, request: Request):
         "amount": transaction.amount,
         "transaction_type": transaction.transaction_type,
         "timestamp": datetime.now(timezone.utc),
+        "risk_score": result["risk_score"],
+        "is_flagged": result["is_flagged"],
     }
 
     await db.transactions.insert_one(transaction_doc)

@@ -131,10 +131,16 @@ def main():
     print(f"ROC-AUC Score: {roc_auc_score(y_true, reconstruction_error):.4f}")
 
     # Save model, scaler, and scored data
+   # Save model, scaler, and scored data
     torch.save(model.state_dict(), "models/autoencoder.pt")
     joblib.dump(scaler, "models/ae_scaler.pkl")
-    df.to_csv("data/features_scored_ae.csv", index=False)
 
+    # Plain numpy versions - same reasoning as the Isolation Forest scaler,
+    # keeps the backend free of a scikit-learn dependency.
+    np.save("models/ae_scaler_mean.npy", scaler.mean_)
+    np.save("models/ae_scaler_scale.npy", scaler.scale_)
+
+    df.to_csv("data/features_scored_ae.csv", index=False)
     print("\nSaved model to models/autoencoder.pt")
     print("Saved scaler to models/ae_scaler.pkl")
     print("Saved scored data to data/features_scored_ae.csv")

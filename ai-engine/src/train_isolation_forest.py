@@ -79,12 +79,22 @@ def main():
     print(f"ROC-AUC Score: {roc_auc_score(y_true, anomaly_score):.4f}")
 
     # Save model, scaler, and scored data for later use in the ensemble + API
+    # Save model, scaler, and scored data for later use in the ensemble + API
     joblib.dump(model, "models/isolation_forest.pkl")
     joblib.dump(scaler, "models/scaler.pkl")
+
+    # Also save the scaler's mean_/scale_ as plain .npy arrays. The backend
+    # only ever needs these two arrays to do (x - mean) / scale - saving them
+    # this way means the backend can load them with plain numpy, without
+    # needing scikit-learn installed just to unpickle a StandardScaler object.
+    np.save("models/if_scaler_mean.npy", scaler.mean_)
+    np.save("models/if_scaler_scale.npy", scaler.scale_)
+
     df.to_csv("data/features_scored.csv", index=False)
 
     print("\nSaved model to models/isolation_forest.pkl")
     print("Saved scaler to models/scaler.pkl")
+    print("Saved scaler arrays to models/if_scaler_mean.npy / if_scaler_scale.npy")
     print("Saved scored data to data/features_scored.csv")
 
 
