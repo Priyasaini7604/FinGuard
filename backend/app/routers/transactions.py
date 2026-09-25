@@ -46,6 +46,68 @@ async def create_transaction(transaction: TransactionIn, request: Request):
     return transaction_doc
 
 
+@router.get("/graph/data")
+async def get_transaction_graph(request: Request, limit: int = 300):
+    """
+    Builds a node/edge graph from transactions - accounts become nodes,
+    transactions become edges. Prioritizes flagged transactions since
+    those are the most important ones to visualize; fills remaining
+    slots with recent normal transactions to keep the graph readable.
+    """
+    db = request.app.mongodb
+
+    # Highest-risk flagged transactions first
+    flagged_cursor = db.transactions.find({"is_flagged": True}) \
+        .sort("risk_score", -1).limit(limit)
+    flagged_txns = await flagged_cursor.to_list(length=limit)
+
+    # Fill any remaining space with recent normal transactions
+    remaining = limit - len(flagged_txns)
+    normal_txns = []
+    if remaining > 0:
+        normal_cursor = db.transactions.find({"is_flagged": False}) \
+            .sort("timestamp", -1).limit(remaining)
+        normal_txns = await normal_cursor.to_list(length=remaining)
+
+    all_txns = flagged_txns + normal_txns
+
+    # Build nodes: one entry per unique account, keeping the highest
+    # risk_score seen across any transaction that account was part of.
+    nodes = {}
+    edges = []
+
+    for txn in all_txns:
+        sender = txn["sender_account"]
+        receiver = txn["receiver_account"]
+        risk = txn.get("risk_score", 0.0)
+        flagged = txn.get("is_flagged", False)
+
+        for account in (sender, receiver):
+            if account not in nodes:
+                nodes[account] = {"id": account, "risk_score": risk, "is_flagged": flagged}
+            else:
+                # Keep the account's worst-case risk score
+                if risk > nodes[account]["risk_score"]:
+                    nodes[account]["risk_score"] = risk
+                    nodes[account]["is_flagged"] = flagged
+
+        edges.append({
+            "source": sender,
+            "target": receiver,
+            "amount": txn["amount"],
+            "risk_score": risk,
+            "is_flagged": flagged,
+            "transaction_id": txn["transaction_id"],
+        })
+
+    return {
+        "nodes": list(nodes.values()),
+        "edges": edges,
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+    }
+
+
 @router.get("/{transaction_id}", response_model=TransactionOut)
 async def get_transaction(transaction_id: str, request: Request):
     """Fetch a single transaction by its ID - useful for checking a scored result."""
