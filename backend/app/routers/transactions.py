@@ -45,6 +45,38 @@ async def create_transaction(transaction: TransactionIn, request: Request):
 
     return transaction_doc
 
+@router.get("/stats/summary")
+async def get_transaction_stats(request: Request):
+    """
+    High-level summary numbers for the dashboard's stat cards -
+    total volume, how much is flagged, and how much money that represents.
+    """
+    db = request.app.mongodb
+
+    total_count = await db.transactions.count_documents({})
+    flagged_count = await db.transactions.count_documents({"is_flagged": True})
+
+    # Sum the amount of flagged transactions using MongoDB's aggregation pipeline -
+    # much faster than pulling every document into Python and summing there.
+    pipeline = [
+        {"$match": {"is_flagged": True}},
+        {"$group": {"_id": None, "total_risk_amount": {"$sum": "$amount"}}},
+    ]
+    result = await db.transactions.aggregate(pipeline).to_list(length=1)
+    total_risk_amount = result[0]["total_risk_amount"] if result else 0
+
+    # Count unique accounts across both sender and receiver fields
+    unique_senders = await db.transactions.distinct("sender_account")
+    unique_receivers = await db.transactions.distinct("receiver_account")
+    unique_accounts = len(set(unique_senders) | set(unique_receivers))
+
+    return {
+        "total_transactions": total_count,
+        "flagged_transactions": flagged_count,
+        "flagged_percentage": round((flagged_count / total_count) * 100, 1) if total_count else 0,
+        "total_risk_amount": round(total_risk_amount, 2),
+        "unique_accounts": unique_accounts,
+    }
 
 @router.get("/graph/data")
 async def get_transaction_graph(request: Request, limit: int = 300):
@@ -57,17 +89,18 @@ async def get_transaction_graph(request: Request, limit: int = 300):
     db = request.app.mongodb
 
     # Highest-risk flagged transactions first
-    flagged_cursor = db.transactions.find({"is_flagged": True}) \
-        .sort("risk_score", -1).limit(limit)
-    flagged_txns = await flagged_cursor.to_list(length=limit)
+        # Split the budget: roughly 40% flagged (to clearly show suspicious
+    # clusters) and 60% normal (so there's real contrast to compare against).
+    flagged_limit = int(limit * 0.4)
+    normal_limit = limit - flagged_limit
 
-    # Fill any remaining space with recent normal transactions
-    remaining = limit - len(flagged_txns)
-    normal_txns = []
-    if remaining > 0:
-        normal_cursor = db.transactions.find({"is_flagged": False}) \
-            .sort("timestamp", -1).limit(remaining)
-        normal_txns = await normal_cursor.to_list(length=remaining)
+    flagged_cursor = db.transactions.find({"is_flagged": True}) \
+        .sort("risk_score", -1).limit(flagged_limit)
+    flagged_txns = await flagged_cursor.to_list(length=flagged_limit)
+
+    normal_cursor = db.transactions.find({"is_flagged": False}) \
+        .sort("timestamp", -1).limit(normal_limit)
+    normal_txns = await normal_cursor.to_list(length=normal_limit)
 
     all_txns = flagged_txns + normal_txns
 
@@ -120,11 +153,14 @@ async def get_transaction(transaction_id: str, request: Request):
     return doc
 
 
+
 @router.get("/")
-async def list_transactions(request: Request, limit: int = 20):
+async def list_transactions(request: Request, limit: int = 20, flagged_only: bool = False):
     """List the most recent transactions - handy for a quick sanity check."""
     db = request.app.mongodb
-    cursor = db.transactions.find().sort("timestamp", -1).limit(limit)
+
+    query = {"is_flagged": True} if flagged_only else {}
+    cursor = db.transactions.find(query).sort("timestamp", -1).limit(limit)
     results = await cursor.to_list(length=limit)
 
     # Mongo's _id (ObjectId) isn't JSON-serializable by default, so drop it

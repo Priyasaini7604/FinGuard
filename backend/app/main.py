@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 
 from app.routers import transactions
 from app.services.scoring import FraudScorer
+from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
@@ -59,6 +60,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="FinGuard API", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # Vite dev server
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(transactions.router)
 
 
